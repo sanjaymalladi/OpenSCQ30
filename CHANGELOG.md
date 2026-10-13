@@ -7,6 +7,7 @@
 #### Features
 
 - Add macOS support (beta)
+- Add support for Soundcore Liberty 4 (A3953)
 
 ## v2.12.0
 
