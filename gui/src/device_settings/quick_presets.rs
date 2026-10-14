@@ -7,7 +7,13 @@ use cosmic::{
 use openscq30_i18n::Translate;
 use openscq30_lib::{quick_presets::QuickPresetsHandler, settings, storage::QuickPreset};
 
-use crate::{app::DebugOpenSCQ30Device, fl, handle_soft_error, utils::coalesce_result};
+use crate::{
+    app::DebugOpenSCQ30Device,
+    components::{self, SPACE_M},
+    equalizer_line::EqualizerLine,
+    fl, handle_soft_error,
+    utils::coalesce_result,
+};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -48,6 +54,9 @@ pub struct QuickPresetsModel {
     quick_presets: Option<Vec<QuickPreset>>,
     editing_quick_preset: Option<QuickPreset>,
     dialog: Option<Dialog>,
+    /// Name of the preset last applied in this session, if it still exists.
+    /// Used only to mark the current card; applying and editing stay separate.
+    last_applied: Option<String>,
 }
 
 impl QuickPresetsModel {
@@ -61,35 +70,80 @@ impl QuickPresetsModel {
             quick_presets: None,
             editing_quick_preset: None,
             dialog: None,
+            last_applied: None,
         };
         let task = model.refresh_quick_presets();
         (model, task)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        if let Some(quick_presets) = &self.quick_presets {
-            widget::column![
+        let Some(quick_presets) = &self.quick_presets else {
+            return widget::text(fl!("loading-item", item = fl!("quick-presets"))).into();
+        };
+        let mut cards = widget::column![].spacing(SPACE_M);
+        for (i, preset) in quick_presets.iter().enumerate() {
+            let current = self.last_applied.as_deref() == Some(preset.name.as_str());
+            cards = cards.push(components::preset_card(
+                preset.name.clone(),
+                self.summary(preset),
+                self.curve(preset),
+                current.then(|| fl!("active")),
+                (!current).then(|| (fl!("activate"), Message::ActivateQuickPreset(i))),
+                Some((fl!("edit"), Message::EditQuickPreset(i))),
+                Some((fl!("delete"), Message::ShowDeleteQuickPresetDialog(i))),
+            ));
+        }
+        widget::column![
+            widget::row![
+                widget::container(components::page_header(
+                    fl!("quick-presets"),
+                    Some(fl!("quick-presets-description")),
+                ))
+                .width(Length::Fill),
                 widget::button::standard(fl!("create-quick-preset"))
                     .on_press(Message::ShowCreateQuickPresetDialog),
-                widget::column(quick_presets.iter().enumerate().map(|(i, preset)| {
-                    widget::row![
-                        widget::text(&preset.name).width(Length::Fill),
-                        widget::button::standard(fl!("activate"))
-                            .on_press(Message::ActivateQuickPreset(i)),
-                        widget::button::standard(fl!("edit")).on_press(Message::EditQuickPreset(i)),
-                        widget::button::destructive(fl!("delete"))
-                            .on_press(Message::ShowDeleteQuickPresetDialog(i)),
-                    ]
-                    .padding(10)
-                    .align_y(alignment::Vertical::Center)
-                    .into()
-                })),
             ]
-            .width(Length::Fill)
-            .into()
-        } else {
-            widget::text(fl!("loading-item", item = fl!("quick-presets"))).into()
+            .align_y(alignment::Vertical::Center),
+            cards,
+        ]
+        .spacing(SPACE_M)
+        .into()
+    }
+
+    /// Concise summary: translated names of up to three enabled settings.
+    fn summary(&self, preset: &QuickPreset) -> String {
+        preset
+            .fields
+            .iter()
+            .filter(|field| field.is_enabled)
+            .take(3)
+            .map(|field| field.setting_id.translate())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+
+    /// Live mini curve, drawn only when the preset stores band values whose
+    /// length matches the connected device's equalizer metadata. Anything
+    /// else yields no preview rather than an invented one.
+    fn curve(&self, preset: &QuickPreset) -> Option<Element<'_, Message>> {
+        let bands = preset.fields.iter().find_map(|field| match &field.value {
+            settings::Value::I16Vec(bands) if field.is_enabled => Some(bands.clone()),
+            _ => None,
+        })?;
+        for category in self.device.0.categories() {
+            for setting_id in self.device.0.settings_in_category(&category) {
+                if let Some(settings::Setting::Equalizer { setting, .. }) =
+                    self.device.0.setting(&setting_id)
+                    && setting.band_hz.len() == bands.len()
+                {
+                    return Some(Element::from(
+                        widget::canvas(EqualizerLine::new(setting.min, setting.max, bands))
+                            .width(Length::Fill),
+                    ));
+                }
+            }
         }
+        None
     }
 
     pub fn dialog(&self) -> Option<Element<'_, Message>> {
@@ -173,6 +227,7 @@ impl QuickPresetsModel {
                 else {
                     return Action::None;
                 };
+                self.last_applied = Some(name.clone());
                 let device = self.device.0.clone();
                 let quick_presets_handler = self.quick_presets_handler.clone();
                 Action::Task(

@@ -6,12 +6,14 @@ use tracing_subscriber::EnvFilter;
 
 mod add_device;
 mod app;
+mod components;
 mod config;
 mod device_selection;
 mod device_settings;
 pub mod equalizer_line;
 mod i18n;
 pub mod icons;
+mod model_images;
 mod openscq30_v1_migration;
 mod throttle;
 mod utils;

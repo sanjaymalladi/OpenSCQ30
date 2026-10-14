@@ -1,5 +1,6 @@
 mod controls;
 mod legacy_migration;
+mod overview;
 mod quick_presets;
 
 use std::{
@@ -47,6 +48,7 @@ pub enum Message {
     ModifiableSelectRemoveDialogSubmit,
     AddLegacyEqualizerMigrationPage(HashMap<String, LegacyEqualizerProfile>),
     LegacyMigration(legacy_migration::Message),
+    Overview(overview::Message),
     None,
     CopyToClipboard(String),
     SetImportString(SettingId, String),
@@ -57,11 +59,18 @@ pub enum Message {
     SetTimeMinute(SettingId, String),
     SetTimePm(SettingId, bool),
     RefreshTimeTwelveHour(SettingId),
+    SetEqualizerAdvanced(bool),
 }
 
 impl From<quick_presets::Message> for Message {
     fn from(message: quick_presets::Message) -> Self {
         Self::QuickPresets(message)
+    }
+}
+
+impl From<overview::Message> for Message {
+    fn from(message: overview::Message) -> Self {
+        Self::Overview(message)
     }
 }
 
@@ -88,6 +97,8 @@ pub struct DeviceSettingsModel {
     dialog: Option<Dialog>,
     legacy_equalizer_migration: Option<legacy_migration::LegacyMigrationModel>,
     quick_presets_model: quick_presets::QuickPresetsModel,
+    overview_model: overview::OverviewModel,
+    equalizer_advanced: bool,
     throttle: throttle::Throttle,
     key_binds: HashMap<KeyBind, KeyBindAction>,
 }
@@ -237,7 +248,11 @@ impl MinutesAfterMidnight {
     fn with_twelve_hour(self, twelve_hour: i32) -> Self {
         let twelve_hour = twelve_hour.clamp(1, 12);
         let twelve_hour_from_zero = if twelve_hour == 12 { 0 } else { twelve_hour };
-        let pm_offset = self.is_pm().then_some(12 * 60).unwrap_or_default();
+        let pm_offset = if self.is_pm() {
+            12 * 60
+        } else {
+            Default::default()
+        };
         Self(pm_offset + twelve_hour_from_zero * 60 + self.minute())
     }
 
@@ -300,9 +315,25 @@ enum Dialog {
     ImportStringConfirm(SettingId, String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CustomCategory {
+    Overview,
     QuickPresets,
     LegacyEqualizerMigration,
+}
+
+/// Appends a rendered setting to a settings section, handling every display
+/// kind the settings renderer can produce.
+fn section_push<'a>(
+    section: widget::settings::Section<'a, Message>,
+    display: SettingDisplayKind<'a, Message>,
+) -> widget::settings::Section<'a, Message> {
+    match display {
+        SettingDisplayKind::Single(element) => section.add(element),
+        SettingDisplayKind::Vec(elements) => section.extend(elements),
+        SettingDisplayKind::ListButton(button) => section.add(button),
+        SettingDisplayKind::ListButtonVec(buttons) => section.extend(buttons),
+    }
 }
 
 enum SettingDisplayKind<'a, Message> {
@@ -345,11 +376,21 @@ impl DeviceSettingsModel {
         config_dir: PathBuf,
     ) -> (Self, Task<Message>) {
         let mut nav_model = nav_bar::Model::default();
+        nav_model
+            .insert()
+            .icon(widget::icon::from_name("go-home-symbolic"))
+            .text(fl!("overview"))
+            .data(CustomCategory::Overview);
         for category in device.categories() {
-            nav_model.insert().text(category.translate()).data(category);
+            nav_model
+                .insert()
+                .icon(widget::icon::from_name(category_icon(category)))
+                .text(category.translate())
+                .data(category);
         }
         nav_model
             .insert()
+            .icon(widget::icon::from_name("view-list-symbolic"))
             .text(fl!("quick-presets"))
             .data(CustomCategory::QuickPresets);
         nav_model.activate_position(0);
@@ -368,6 +409,8 @@ impl DeviceSettingsModel {
 
         let (quick_presets_model, quick_presets_refresh_task) =
             quick_presets::QuickPresetsModel::new(device.clone(), quick_presets_handler);
+
+        let (overview_model, overview_task) = overview::OverviewModel::new(device.clone());
 
         let mut connection_status = device.0.connection_status();
         let watch_for_disconnect_task = Task::future(
@@ -397,11 +440,14 @@ impl DeviceSettingsModel {
             dialog: None,
             legacy_equalizer_migration: None,
             quick_presets_model,
+            overview_model,
+            equalizer_advanced: false,
             key_binds: key_binds(),
         };
         let task = Task::batch([
             model.refresh(),
             quick_presets_refresh_task.map(Into::into),
+            overview_task.map(Into::into),
             Self::initialize_legacy_migration(config_dir),
             Task::stream(stream),
             watch_for_disconnect_task,
@@ -429,6 +475,19 @@ impl DeviceSettingsModel {
 
     pub fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<Message> {
         self.nav_model.activate(id);
+        self.refresh()
+    }
+
+    /// Activates the nav entry for an overview card, if present.
+    fn navigate_to(&mut self, target: overview::NavTarget) -> Task<Message> {
+        let found = self.nav_model.iter().find(|id| match &target {
+            overview::NavTarget::Category(category) => {
+                self.nav_model.data::<CategoryId>(*id) == Some(category)
+            }
+        });
+        if let Some(id) = found {
+            self.nav_model.activate(id);
+        }
         self.refresh()
     }
 
@@ -461,7 +520,7 @@ impl DeviceSettingsModel {
             for (setting_id, setting) in settings.into_iter() {
                 match self.settings.entry(setting_id) {
                     hash_map::Entry::Occupied(mut occupied_entry) => {
-                        occupied_entry.get_mut().variant_state.update(setting)
+                        occupied_entry.get_mut().variant_state.update(setting);
                     }
                     hash_map::Entry::Vacant(vacant_entry) => {
                         vacant_entry.insert(SettingUiState {
@@ -552,6 +611,7 @@ impl DeviceSettingsModel {
     pub fn view(&self) -> Element<'_, Message> {
         if let Some(custom_category) = self.nav_model.active_data::<CustomCategory>() {
             match custom_category {
+                CustomCategory::Overview => self.overview_model.view(),
                 CustomCategory::QuickPresets => self.quick_presets_model.view().map(Into::into),
                 CustomCategory::LegacyEqualizerMigration => {
                     if let Some(model) = &self.legacy_equalizer_migration {
@@ -569,6 +629,9 @@ impl DeviceSettingsModel {
     }
 
     fn view_settings<'a>(&'a self, category_id: &'a CategoryId) -> Element<'a, Message> {
+        if category_id == &CategoryId::Equalizer {
+            return self.view_equalizer();
+        }
         let mut section = widget::settings::section().title(category_id.translate());
         for setting_id in &self.settings_order {
             let Some(setting_ui_state) = self.settings.get(setting_id) else {
@@ -592,6 +655,90 @@ impl DeviceSettingsModel {
         }
 
         widget::scrollable(section).into()
+    }
+
+    /// Redesigned equalizer page: Simple tab for preset profiles, Advanced tab
+    /// with the interactive graph, precise band rows, and profile management.
+    /// Everything renders from setting metadata; band counts, bounds, and
+    /// labels adapt per device.
+    fn view_equalizer(&self) -> Element<'_, Message> {
+        use crate::components::{self, SPACE_M};
+        let tabs = components::mode_choices(vec![
+            (
+                fl!("simple"),
+                !self.equalizer_advanced,
+                Message::SetEqualizerAdvanced(false),
+            ),
+            (
+                fl!("advanced"),
+                self.equalizer_advanced,
+                Message::SetEqualizerAdvanced(true),
+            ),
+        ]);
+        let mut presets = widget::settings::section();
+        let mut editor = widget::settings::section();
+        for setting_id in &self.settings_order {
+            let Some(state) = self.settings.get(setting_id) else {
+                continue;
+            };
+            match &state.variant_state {
+                SettingVariantUiState::PresetEqualizerProfileSelect { .. }
+                | SettingVariantUiState::ModifiableSelect { .. } => {
+                    presets = section_push(presets, self.view_setting(state));
+                }
+                SettingVariantUiState::Equalizer {
+                    setting,
+                    read_only,
+                    value,
+                } => {
+                    if *read_only {
+                        editor = editor.add(Element::from(
+                            widget::canvas(equalizer_line::EqualizerLine::new(
+                                setting.min,
+                                setting.max,
+                                value.clone(),
+                            ))
+                            .width(Length::Fill),
+                        ));
+                    } else if self.equalizer_advanced {
+                        let setting_id = state.setting_id;
+                        editor = editor.add(Element::from(
+                            widget::canvas(controls::EqualizerGraph::new(
+                                setting.min,
+                                setting.max,
+                                value.clone(),
+                                move |index, band_value| {
+                                    Message::SetEqualizerBand(setting_id, index, band_value)
+                                },
+                            ))
+                            .width(Length::Fill)
+                            .height(Length::Fixed(220.0)),
+                        ));
+                        editor = section_push(editor, self.view_setting(state));
+                    }
+                }
+                _ => {
+                    if self.equalizer_advanced {
+                        editor = section_push(editor, self.view_setting(state));
+                    }
+                }
+            }
+        }
+        let mut content = widget::column![tabs].spacing(SPACE_M);
+        let presets: Element<'_, Message> = presets.into();
+        content = content.push(presets);
+        if self.equalizer_advanced {
+            let editor: Element<'_, Message> = editor.into();
+            content = content.push(editor);
+        }
+        widget::scrollable(
+            widget::column![
+                widget::text::title2(CategoryId::Equalizer.translate()),
+                content,
+            ]
+            .spacing(SPACE_M),
+        )
+        .into()
     }
 
     fn view_setting<'a>(&'a self, setting: &'a SettingUiState) -> SettingDisplayKind<'a, Message> {
@@ -764,6 +911,14 @@ impl DeviceSettingsModel {
                 quick_presets::Action::Task(task) => Action::Task(task.map(Into::into)),
                 quick_presets::Action::FocusTextInput(id) => Action::FocusTextInput(id),
             },
+            Message::Overview(inner) => match inner {
+                overview::Message::ImageLoaded(model, handle) => {
+                    self.overview_model
+                        .update(overview::Message::ImageLoaded(model, handle));
+                    Action::None
+                }
+                overview::Message::Navigate(target) => Action::Task(self.navigate_to(target)),
+            },
             Message::SetSetting(setting_id, value) => self.set_setting(setting_id, value),
             Message::SetTimeTwelveHour(setting_id, new_hour_text) => {
                 let maybe_value = if new_hour_text.len() <= 2
@@ -882,6 +1037,10 @@ impl DeviceSettingsModel {
                 }
             }
             Message::RefreshSettings => Action::Task(self.refresh_settings()),
+            Message::SetEqualizerAdvanced(advanced) => {
+                self.equalizer_advanced = advanced;
+                Action::None
+            }
             Message::Warning(message) => Action::Warning(message),
             Message::CancelDialog => {
                 self.dialog = None;
@@ -1100,6 +1259,23 @@ impl DeviceSettingsModel {
                 Action::None
             }
         }
+    }
+}
+
+fn category_icon(category: CategoryId) -> &'static str {
+    match category {
+        CategoryId::General => "preferences-system-symbolic",
+        CategoryId::SoundModes => "audio-headphones-symbolic",
+        CategoryId::Equalizer => "multimedia-equalizer-symbolic",
+        CategoryId::EqualizerImportExport => "document-save-symbolic",
+        CategoryId::ButtonConfiguration => "input-gaming-symbolic",
+        CategoryId::DeviceInformation => "dialog-information-symbolic",
+        CategoryId::Miscellaneous => "preferences-other-symbolic",
+        CategoryId::LimitHighVolume => "audio-volume-high-symbolic",
+        CategoryId::DualConnections => "network-workgroup-symbolic",
+        CategoryId::Case => "battery-symbolic",
+        CategoryId::Lights => "weather-clear-symbolic",
+        CategoryId::Alarms => "alarm-symbolic",
     }
 }
 

@@ -650,11 +650,28 @@ impl Application for AppModel {
 
 impl AppModel {
     fn apply_theme(&self) -> cosmic::app::Task<Message> {
-        cosmic::command::set_theme(match self.config.get().theme {
-            AppTheme::System => self.core.system_theme().clone(),
-            AppTheme::Light => cosmic::Theme::light(),
-            AppTheme::Dark => cosmic::Theme::dark(),
-        })
+        // Use the chosen light/dark base, while keeping one consistent brand
+        // accent and a quieter charcoal surface in dark mode.
+        let dark = match self.config.get().theme {
+            AppTheme::System => self.core.system_theme().cosmic().is_dark,
+            AppTheme::Light => false,
+            AppTheme::Dark => true,
+        };
+        let builder = if dark {
+            cosmic::cosmic_theme::ThemeBuilder::dark()
+                .bg_color(cosmic::cosmic_theme::palette::Srgba::new(
+                    0.035, 0.035, 0.035, 1.0,
+                ))
+                .primary_container_bg(cosmic::cosmic_theme::palette::Srgba::new(
+                    0.09, 0.09, 0.09, 1.0,
+                ))
+        } else {
+            cosmic::cosmic_theme::ThemeBuilder::light()
+        };
+        let theme = builder
+            .accent(cosmic::cosmic_theme::palette::Srgb::new(0.91, 0.16, 0.19))
+            .build();
+        cosmic::command::set_theme(cosmic::Theme::custom(Arc::new(theme)))
     }
 
     pub fn update_title(&mut self) -> cosmic::app::Task<Message> {

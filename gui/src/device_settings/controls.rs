@@ -1,5 +1,6 @@
 mod action;
 mod equalizer;
+mod equalizer_graph;
 mod hue_color_picker;
 mod import_string;
 mod information;
@@ -10,6 +11,7 @@ mod toggle;
 
 pub use action::*;
 pub use equalizer::*;
+pub use equalizer_graph::*;
 pub use hue_color_picker::*;
 pub use import_string::*;
 pub use information::*;

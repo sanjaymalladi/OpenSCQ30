@@ -14,7 +14,7 @@ default = []
 bundled-dependencies = ["openscq30-lib/bundled-dependencies"]
 
 [dependencies]
-tokio = { workspace = true, features = ["fs"] }
+tokio = { workspace = true, features = ["fs", "sync", "time"] }
 futures = { workspace = true }
 libcosmic = { workspace = true, features = [
     "a11y",
@@ -41,6 +41,9 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
+reqwest = { workspace = true }
+image = { workspace = true }
+bytes = { workspace = true }
 itertools = { workspace = true }
 open = { workspace = true }
 

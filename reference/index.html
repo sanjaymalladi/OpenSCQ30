@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenSCQ30 — Q20i desktop concepts</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", Inter, system-ui, sans-serif;
+      background: #0c0c0d;
+      color: #f2f0ee;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; }
+    main { max-width: 1500px; margin: 0 auto; }
+    header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: 0 0 24px; }
+    h1 { margin: 0; font: 40px/1.05 Georgia, "Times New Roman", serif; letter-spacing: -.03em; }
+    p { margin: 8px 0 0; color: #aaa7a4; font-size: 14px; }
+    .model { display: inline-flex; align-items: center; gap: 9px; color: #dedbd8; font-size: 13px; white-space: nowrap; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef3940; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    figure { margin: 0; padding: 12px; border: 1px solid #29292a; border-radius: 18px; background: #171718; }
+    figure img { display: block; width: 100%; border-radius: 10px; }
+    figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 4px 2px; }
+    figcaption strong { font-size: 14px; font-weight: 550; }
+    figcaption span { color: #92908e; font-size: 12px; text-align: right; }
+    footer { margin-top: 18px; color: #777573; font-size: 12px; }
+    @media (max-width: 760px) {
+      body { padding: 16px; }
+      header { align-items: start; flex-direction: column; }
+      h1 { font-size: 32px; }
+      .grid { grid-template-columns: 1fr; gap: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Soundcore Q20i<br>Desktop concepts</h1>
+        <p>OpenSCQ30 design direction · device A3004</p>
+      </div>
+      <div class="model"><span class="dot"></span>Selected model: Soundcore Q20i</div>
+    </header>
+    <section class="grid" aria-label="Q20i desktop screen mockups">
+      <figure>
+        <img src="D:/crazy-projects/openscq30/reference/01-overview-q20i.png" alt="Overview screen for Soundcore Q20i">
+        <figcaption><strong>01 · Overview</strong><span>Ambient modes and current EQ</span></figcaption>
+      </figure>
+      <figure>
+        <img src="D:/crazy-projects/openscq30/reference/02-equalizer-q20i.png" alt="10-band equalizer screen for Soundcore Q20i">
+        <figcaption><strong>02 · Equalizer</strong><span>10-band editor and presets</span></figcaption>
+      </figure>
+      <figure>
+        <img src="D:/crazy-projects/openscq30/reference/03-quick-presets-q20i.png" alt="Quick presets screen for Soundcore Q20i">
+        <figcaption><strong>03 · Quick presets</strong><span>Local model-specific profiles</span></figcaption>
+      </figure>
+      <figure>
+        <img src="D:/crazy-projects/openscq30/reference/04-device-information-q20i.png" alt="Device information screen for Soundcore Q20i">
+        <figcaption><strong>04 · Device information</strong><span>Supported features and details</span></figcaption>
+      </figure>
+    </section>
+    <footer>Static design concepts. Values and device status shown in the screens are illustrative.</footer>
+  </main>
+</body>
+</html>
